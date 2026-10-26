@@ -1,0 +1,11 @@
+[Unit]
+Description=Check Sorvo website GitHub main every minute
+
+[Timer]
+OnBootSec=30s
+OnUnitInactiveSec=60s
+AccuracySec=1s
+Unit=sorvo-deploy.service
+
+[Install]
+WantedBy=timers.target
