@@ -1,0 +1,20 @@
+[Unit]
+Description=Publish Sorvo website main branch
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=sorvo-deploy
+Group=sorvo-deploy
+Environment=GIT_TERMINAL_PROMPT=0
+Environment=HOME=/var/lib/sorvo-deploy
+ExecStart=/usr/local/lib/sorvo-deploy.py
+TimeoutStartSec=180
+UMask=0022
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/sorvo-deploy /var/www/sorvo-auto
+RestrictSUIDSGID=true
