@@ -1,18 +1,23 @@
 #!/usr/bin/python3
 """Publish public/main as static files; never execute repository code."""
-import fcntl, io, os, pathlib, subprocess, tarfile, tempfile
+import fcntl, io, os, pathlib, re, subprocess, sys, tarfile, tempfile
 BASE = pathlib.Path("/var/www/sorvo-auto")
 STATE = pathlib.Path("/var/lib/sorvo-deploy")
 REPO = STATE / "repo.git"
 URL = "https://github.com/SorvoStudio/sorvo-studio-website.git"
 def git(*args):
     return subprocess.check_output(["git", "-c", "core.hooksPath=/dev/null", "--git-dir=" + str(REPO), *args], timeout=90)
+requested = sys.argv[1] if len(sys.argv) == 2 else None
+if len(sys.argv) > 2 or (requested is not None and not re.fullmatch(r"[0-9a-f]{40}", requested)):
+    raise SystemExit("Expected one full commit SHA")
 with (STATE / "lock").open("w") as lock:
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     if not REPO.exists():
         subprocess.run(["git", "init", "--bare", str(REPO)], check=True, timeout=30)
     git("fetch", "--depth=1", "--no-tags", URL, "+refs/heads/main:refs/heads/main")
     sha = git("rev-parse", "refs/heads/main").decode().strip()
+    if requested is not None and requested != sha:
+        raise SystemExit("Refusing outdated deployment: requested " + requested + ", current main is " + sha)
     current = BASE / "current"
     if current.is_symlink() and current.resolve().parent.name == sha:
         print("Unchanged " + sha)
