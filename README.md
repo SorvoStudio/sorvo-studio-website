@@ -22,28 +22,34 @@ DNS is managed in Tencent Cloud DNSPod. Both the apex and `www` A records point 
 
 ## Updating the site
 
-Push changes to `main`. The server checks GitHub every 60 seconds and publishes new commits automatically (normally within 1–2 minutes, depending on network availability). This is server-side polling, not a GitHub Actions workflow or webhook. Other branches are not published.
+Push changes to `main`. [GitHub Actions](https://github.com/SorvoStudio/sorvo-studio-website/actions/workflows/deploy.yml) runs **Deploy website**, connects to the server over SSH, publishes the triggering commit, and checks the live version and website pages. Use the standard green/red job status and step logs to see success or errors. The workflow also supports **Run workflow** on `main`.
 
-The restricted `sorvo-deploy` service fetches this public repository without SSH keys or GitHub secrets. It checks required files, rejects symlinks/special files, stages a complete release, then atomically switches the live directory. A failed download or validation leaves the previous version live and is retried at the next check. Repository scripts are never executed. Changes to files under `deploy/` require manual installation by a server administrator.
+The old `sorvo-deploy.timer` polling timer is disabled. GitHub Actions is the automatic deployment entry point. The server only accepts `deploy <full commit SHA>`, and rejects a SHA that is no longer the current `main` tip. If an older queued run reports an outdated commit, check the newest run instead. Revert changes on `main` to deploy an older site's content as a new commit.
 
-Verify the homepage, privacy policy, and `/app-ads.txt` after updates. The live commit is available at https://www.sorvostudio.com/deployment-version.txt.
+Repository secrets:
+- `SORVO_DEPLOY_KEY`: dedicated SSH private key for the restricted `sorvo-deploy` account.
+- `SORVO_KNOWN_HOSTS`: server host public key verified through the VPS console.
+
+The account has no administrator privileges, interactive shell, file-transfer access, or forwarding. It fetches the fixed public repository, validates required files, rejects symlinks/special files, and atomically switches the live release. Repository scripts are never executed. Validation failures preserve the previous release; a failure in the later public HTTP check must be investigated using the workflow logs and live site.
+
+The live commit is available at https://www.sorvostudio.com/deployment-version.txt.
 
 Server administration:
 
 ```sh
-# Status / recent logs
-systemctl status sorvo-deploy.timer
-journalctl -u sorvo-deploy.service -n 30
-# Publish immediately
+# Verify the old timer stays disabled
+systemctl is-enabled sorvo-deploy.timer
+# Emergency manual publish of current main
 sudo systemctl start sorvo-deploy.service
-# Pause / resume automatic publishing
-sudo systemctl stop sorvo-deploy.timer
-sudo systemctl start sorvo-deploy.timer
+# Logs for emergency manual runs (normal deploy logs are in Actions)
+journalctl -u sorvo-deploy.service -n 30
 ```
 
-Installed files: `/usr/local/lib/sorvo-deploy.py` and `/etc/systemd/system/sorvo-deploy.{service,timer}`. Source copies are in `deploy/`. Git state is in `/var/lib/sorvo-deploy`; releases are retained under `/var/www/sorvo-auto/releases/<commit>/public`. Monitor disk space and remove unneeded old releases during maintenance.
+Installed scripts: `/usr/local/lib/sorvo-deploy.py` and `/usr/local/lib/sorvo-ssh-deploy.py`. SSH restrictions: `/etc/ssh/sshd_config.d/90-sorvo-deploy.conf`; authorized public key: `/etc/ssh/sorvo-deploy.keys`. Source copies are in `deploy/`; the active workflow is `.github/workflows/deploy.yml`. Changes to server scripts/configuration require manual installation by a server administrator.
 
-To roll back, stop the timer, wait for any running service to finish, then replace `current` with a symlink to a previously validated release using `ln -s TARGET current.next && mv -Tf current.next current` from `/var/www/sorvo-auto`. Keep the timer stopped until the GitHub change is reverted; resuming it publishes the latest `main` again.
+Git state is in `/var/lib/sorvo-deploy`; releases are retained under `/var/www/sorvo-auto/releases/<commit>/public`. Monitor disk space and remove unneeded old releases during maintenance.
+
+For emergency rollback, disable the GitHub workflow and wait for any running deployment to finish, then atomically switch `/var/www/sorvo-auto/current` to a previously validated release. Keep the workflow disabled until the problematic GitHub change is reverted. Normal rollback is a revert commit on `main`.
 
 ## HTTPS and server configuration
 
