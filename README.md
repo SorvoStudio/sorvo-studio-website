@@ -31,6 +31,18 @@ git pull --ff-only origin main
 
 Static file updates do not require restarting Nginx. Verify the homepage, privacy policy, and `/app-ads.txt` after updates. GitHub pushes alone do not deploy to this server.
 
+## HTTPS and server configuration
+
+The production Nginx configuration is recorded in `deploy/nginx.conf`. Changes to this file in GitHub do not automatically change the running server configuration.
+
+The Let's Encrypt certificate is named `sorvo-studio-website`. Certbot uses HTTP validation with web root `/var/www/sorvo-acme`; the `snap.certbot.renew.timer` service handles scheduled renewal. Keep port 80 and `/.well-known/acme-challenge/` reachable on both domain names.
+
+To test renewal:
+
+```sh
+sudo /snap/bin/certbot renew --cert-name sorvo-studio-website --dry-run
+```
+
 ## Local preview
 
 ```sh
