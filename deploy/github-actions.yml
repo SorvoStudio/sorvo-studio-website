@@ -67,16 +67,6 @@ jobs:
             echo "$path -> HTTP $code"
             [[ "$code" == 200 ]] || { echo "::error::Website check failed for $path"; exit 1; }
           done
-          echo "### Website deployed successfully" >> "$GITHUB_STEP_SUMMARY"
-          echo "Commit: $DEPLOY_SHA" >> "$GITHUB_STEP_SUMMARY"
-          echo "Website: https://www.sorvostudio.com/" >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Report failure
-        if: failure()
-        run: |
-          echo "### Deployment failed" >> "$GITHUB_STEP_SUMMARY"
-          echo "Open the failed step above for details. A failure during validation leaves the previous release live; a health-check failure requires checking the live site." >> "$GITHUB_STEP_SUMMARY"
-
       - name: Remove temporary SSH files
         if: always()
         shell: bash
