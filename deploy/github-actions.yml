@@ -1,0 +1,83 @@
+name: Deploy website
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sorvo-website-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Prepare restricted SSH connection
+        env:
+          DEPLOY_KEY: ${{ secrets.SORVO_DEPLOY_KEY }}
+          KNOWN_HOSTS: ${{ secrets.SORVO_KNOWN_HOSTS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$DEPLOY_KEY" || -z "$KNOWN_HOSTS" ]]; then
+            echo "::error::Missing SORVO_DEPLOY_KEY or SORVO_KNOWN_HOSTS repository secret"
+            exit 1
+          fi
+          install -d -m 700 "$RUNNER_TEMP/sorvo-ssh"
+          umask 077
+          printf '%s\n' "$DEPLOY_KEY" > "$RUNNER_TEMP/sorvo-ssh/key"
+          printf '%s\n' "$KNOWN_HOSTS" > "$RUNNER_TEMP/sorvo-ssh/known_hosts"
+          ssh-keygen -y -f "$RUNNER_TEMP/sorvo-ssh/key" >/dev/null
+
+      - name: Publish this commit on BandwagonHost
+        env:
+          DEPLOY_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]]
+          ssh -T -p 22 \
+            -i "$RUNNER_TEMP/sorvo-ssh/key" \
+            -o UserKnownHostsFile="$RUNNER_TEMP/sorvo-ssh/known_hosts" \
+            -o StrictHostKeyChecking=yes \
+            -o IdentitiesOnly=yes -o BatchMode=yes \
+            -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 \
+            sorvo-deploy@65.49.221.8 "deploy $DEPLOY_SHA"
+
+      - name: Verify live version and website pages
+        env:
+          DEPLOY_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          live=$(curl --fail --silent --show-error --retry 3 --max-time 25 \
+            "https://www.sorvostudio.com/deployment-version.txt?commit=$DEPLOY_SHA")
+          if [[ "$live" != "$DEPLOY_SHA" ]]; then
+            echo "::error::Live commit mismatch: expected $DEPLOY_SHA, received $live"
+            exit 1
+          fi
+          for path in / /privacy.html /app-ads.txt /robots.txt /sitemap.xml; do
+            code=$(curl --silent --show-error --retry 2 --max-time 25 \
+              --output /dev/null --write-out '%{http_code}' "https://www.sorvostudio.com$path")
+            echo "$path -> HTTP $code"
+            [[ "$code" == 200 ]] || { echo "::error::Website check failed for $path"; exit 1; }
+          done
+          echo "### Website deployed successfully" >> "$GITHUB_STEP_SUMMARY"
+          echo "Commit: $DEPLOY_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "Website: https://www.sorvostudio.com/" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Report failure
+        if: failure()
+        run: |
+          echo "### Deployment failed" >> "$GITHUB_STEP_SUMMARY"
+          echo "Open the failed step above for details. A failure during validation leaves the previous release live; a health-check failure requires checking the live site." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove temporary SSH files
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/sorvo-ssh/key" "$RUNNER_TEMP/sorvo-ssh/known_hosts"
